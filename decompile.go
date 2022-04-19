@@ -21,14 +21,15 @@ type UnaryOp int
 const (
 	UnaryNot UnaryOp = iota
 	UnaryNegate
+	UnaryLength
 )
 
 func (u UnaryOp) String() string {
-	if u > UnaryNegate {
+	if u > UnaryLength {
 		return fmt.Sprintf("UnaryOp(%d)", int(u))
 	}
 	return []string{
-		"UnaryNot", "UnaryNegate",
+		"not", "-", "#",
 	}[u]
 }
 
@@ -40,14 +41,21 @@ const (
 	BinaryGreaterEqual
 	BinaryNotEqual
 	BinaryEqual
+	BinaryAdd
+	BinarySub
+	BinaryMul
+	BinaryDiv
+	BinaryMod
+	BinaryPow
+	BinaryConcat
 )
 
 func (c BinaryOp) String() string {
-	if c > BinaryEqual {
+	if c > BinaryConcat {
 		return fmt.Sprintf("BinaryOp(%d)", int(c))
 	}
 	return []string{
-		"BinaryLess", "BinaryGreater", "BinaryLessEqual", "BinaryGreaterEqual", "BinaryNotEqual", "BinaryEqual",
+		"<", ">", "<=", ">=", "~=", "==", "+", "-", "*", "/", "%", "^", "..",
 	}[c]
 }
 
@@ -88,10 +96,22 @@ func (gr GlobalRef) String() string {
 	return string(gr)
 }
 
+type VarargRef struct{}
+
+func (vr VarargRef) String() string {
+	return "..."
+}
+
 type RegRef int
 
 func (rr RegRef) String() string {
 	return fmt.Sprintf("r%d", int(rr))
+}
+
+type UpvalRef int
+
+func (ur UpvalRef) String() string {
+	return fmt.Sprintf("u%d", int(ur))
 }
 
 type RestRegRef int
@@ -299,14 +319,29 @@ func Decompile(f *decoder.Function) {
 				Left:  l,
 				Right: r,
 			}
+		case decoder.GETUPVAL:
+			code[i] = &AssignStatement{
+				Left:  []Expression{RegRef(op.A)},
+				Right: []Expression{UpvalRef(op.B)},
+			}
 		case decoder.GETGLOBAL:
 			code[i] = &AssignStatement{
 				Left:  []Expression{RegRef(op.A)},
 				Right: []Expression{findGlobal(op.Bx)},
 			}
+		case decoder.GETTABLE:
+			code[i] = &AssignStatement{
+				Left:  []Expression{RegRef(op.A)},
+				Right: []Expression{&RefTableExpression{Table: RegRef(op.B), Index: rk(op.C)}},
+			}
 		case decoder.SETGLOBAL:
 			code[i] = &AssignStatement{
 				Left:  []Expression{findGlobal(op.Bx)},
+				Right: []Expression{RegRef(op.A)},
+			}
+		case decoder.SETUPVAL:
+			code[i] = &AssignStatement{
+				Left:  []Expression{UpvalRef(op.B)},
 				Right: []Expression{RegRef(op.A)},
 			}
 		case decoder.SETTABLE:
@@ -318,6 +353,69 @@ func Decompile(f *decoder.Function) {
 			code[i] = &AssignStatement{
 				Left:  []Expression{RegRef(op.A)},
 				Right: []Expression{&NewTableExpression{}},
+			}
+		case decoder.SELF:
+			code[i] = &AssignStatement{
+				Left:  []Expression{RegRef(op.A + 1), RegRef(op.A)},
+				Right: []Expression{RegRef(op.B), &RefTableExpression{Table: RegRef(op.B), Index: rk(op.C)}},
+			}
+		case decoder.ADD:
+			code[i] = &AssignStatement{
+				Left:  []Expression{RegRef(op.A)},
+				Right: []Expression{&BinaryExpression{Left: rk(op.B), Right: rk(op.C), Op: BinaryAdd}},
+			}
+		case decoder.SUB:
+			code[i] = &AssignStatement{
+				Left:  []Expression{RegRef(op.A)},
+				Right: []Expression{&BinaryExpression{Left: rk(op.B), Right: rk(op.C), Op: BinarySub}},
+			}
+		case decoder.MUL:
+			code[i] = &AssignStatement{
+				Left:  []Expression{RegRef(op.A)},
+				Right: []Expression{&BinaryExpression{Left: rk(op.B), Right: rk(op.C), Op: BinaryMul}},
+			}
+		case decoder.DIV:
+			code[i] = &AssignStatement{
+				Left:  []Expression{RegRef(op.A)},
+				Right: []Expression{&BinaryExpression{Left: rk(op.B), Right: rk(op.C), Op: BinaryDiv}},
+			}
+		case decoder.MOD:
+			code[i] = &AssignStatement{
+				Left:  []Expression{RegRef(op.A)},
+				Right: []Expression{&BinaryExpression{Left: rk(op.B), Right: rk(op.C), Op: BinaryMod}},
+			}
+		case decoder.POW:
+			code[i] = &AssignStatement{
+				Left:  []Expression{RegRef(op.A)},
+				Right: []Expression{&BinaryExpression{Left: rk(op.B), Right: rk(op.C), Op: BinaryPow}},
+			}
+		case decoder.UNM:
+			code[i] = &AssignStatement{
+				Left:  []Expression{RegRef(op.A)},
+				Right: []Expression{&UnaryExpression{E: RegRef(op.B), Op: UnaryNegate}},
+			}
+		case decoder.NOT:
+			code[i] = &AssignStatement{
+				Left:  []Expression{RegRef(op.A)},
+				Right: []Expression{&UnaryExpression{E: RegRef(op.B), Op: UnaryNot}},
+			}
+		case decoder.LEN:
+			code[i] = &AssignStatement{
+				Left:  []Expression{RegRef(op.A)},
+				Right: []Expression{&UnaryExpression{E: RegRef(op.B), Op: UnaryLength}},
+			}
+		case decoder.CONCAT:
+			var tmp Expression = RegRef(op.C)
+			for k := op.C - 1; k >= op.B; k-- {
+				tmp = &BinaryExpression{
+					Left:  RegRef(k),
+					Right: tmp,
+					Op:    BinaryConcat,
+				}
+			}
+			code[i] = &AssignStatement{
+				Left:  []Expression{RegRef(op.A)},
+				Right: []Expression{tmp},
 			}
 		case decoder.JMP:
 			code[i] = &JumpStatement{
@@ -349,25 +447,74 @@ func Decompile(f *decoder.Function) {
 			code[i] = s
 			jumps = append(jumps, i)
 			jTargets[s.Target]++
-		case decoder.TEST:
-			// if not (R(A) != C) then jmp
+		case decoder.LT:
+			// if (B < C) != A then jmp
 			// =>
-			// C=0: if not R(A) then jmp
-			// C=1: if R(A) then jmp
+			// A=0: if (B < C) then jmp
+			// B=0: if (B >= C) then jmp
 			s := &IfStatement{
 				Target: i + 1 + 1,
 			}
 			if op.C == 0 {
-				s.Cond = &UnaryExpression{
-					Op: UnaryNot,
-					E:  RegRef(op.A),
+				s.Cond = &BinaryExpression{
+					Left:  rk(op.B),
+					Right: rk(op.C),
+					Op:    BinaryLess,
 				}
 			} else {
-				s.Cond = RegRef(op.A)
+				s.Cond = &BinaryExpression{
+					Left:  rk(op.B),
+					Right: rk(op.C),
+					Op:    BinaryGreaterEqual,
+				}
 			}
 			code[i] = s
 			jumps = append(jumps, i)
 			jTargets[s.Target]++
+		case decoder.LE:
+			// if (B <= C) != A then jmp
+			// =>
+			// A=0: if (B <= C) then jmp
+			// B=0: if (B > C) then jmp
+			s := &IfStatement{
+				Target: i + 1 + 1,
+			}
+			if op.C == 0 {
+				s.Cond = &BinaryExpression{
+					Left:  rk(op.B),
+					Right: rk(op.C),
+					Op:    BinaryLessEqual,
+				}
+			} else {
+				s.Cond = &BinaryExpression{
+					Left:  rk(op.B),
+					Right: rk(op.C),
+					Op:    BinaryGreater,
+				}
+			}
+			code[i] = s
+			jumps = append(jumps, i)
+			jTargets[s.Target]++
+		case decoder.TEST:
+			// if not (R(A) != C) then jmp
+			// =>
+			// C=0: if R(A) then jmp
+			// C=1: if not R(A) then jmp
+			s := &IfStatement{
+				Target: i + 1 + 1,
+			}
+			if op.C == 0 {
+				s.Cond = RegRef(op.A)
+			} else {
+				s.Cond = &UnaryExpression{
+					Op: UnaryNot,
+					E:  RegRef(op.A),
+				}
+			}
+			code[i] = s
+			jumps = append(jumps, i)
+			jTargets[s.Target]++
+		// case decoder.TESTSET:
 		case decoder.CALL:
 			var args []Expression
 			if op.B == 0 {
@@ -400,6 +547,7 @@ func Decompile(f *decoder.Function) {
 					Right: []Expression{callExpr},
 				}
 			}
+		// case decoder.TAILCALL:
 		case decoder.RETURN:
 			ret := &ReturnStatement{
 				BaseReg: op.A,
@@ -410,8 +558,14 @@ func Decompile(f *decoder.Function) {
 				ret.Args = []Expression{RestRegRef(ret.BaseReg)}
 			} else {
 				ret.Args = make([]Expression, 0, ret.Count)
+				for i := 0; i < ret.Count; i++ {
+					ret.Args = append(ret.Args, RegRef(ret.BaseReg + i))
+				}
 			}
 			code[i] = ret
+		// case decoder.FORLOOP:
+		// case decoder.FORPREP:
+		// case decoder.TFORLOOP:
 		case decoder.SETLIST:
 			if op.C == 0 {
 				panic("TODO: find how to even generate this!")
@@ -437,6 +591,7 @@ func Decompile(f *decoder.Function) {
 					Right: r,
 				}
 			}
+		// case decoder.CLOSE:
 		case decoder.CLOSURE:
 			proto := f.Protos[op.Bx]
 			closure := &ClosureExpression{
@@ -457,14 +612,35 @@ func Decompile(f *decoder.Function) {
 				switch up.Op {
 				case decoder.MOVE:
 					closure.Ups[j] = RegRef(up.B)
+				case decoder.GETUPVAL:
+					closure.Ups[j] = UpvalRef(up.B)
 				default:
 					panic(up)
+				}
+			}
+		case decoder.VARARG:
+			if op.B == 0 {
+				code[i] = &AssignStatement{
+					Left:  []Expression{RestRegRef(op.A)},
+					Right: []Expression{VarargRef{}},
+				}
+			} else {
+				left := []Expression{}
+				for i := 0; i < op.B; i++ {
+					left = append(left, RegRef(op.A + i))
+				}
+				code[i] = &AssignStatement{
+					Left:  left,
+					Right: []Expression{VarargRef{}},
 				}
 			}
 		default:
 			panic(fmt.Errorf("Unknown op %s", op))
 		}
 	}
+
+	// Push func args as an easy hack for now...
+	pushForwardFuncArgs(code, jTargets)
 
 	level := f.Level()
 	for k, v := range code {
@@ -473,14 +649,81 @@ func Decompile(f *decoder.Function) {
 		}
 		if v == nil {
 			// This code part was left out...
-			fmt.Printf("%s!!!nil or missing!!!\n", MakePadding(level))
+			// fmt.Printf("%s!!!nil or missing!!!\n", MakePadding(level))
 			continue
 		}
 		fmt.Printf("%s", v.Print(level + 1))
 	}
 
 	for k, v := range f.Protos {
-		fmt.Printf("\n\n%s-- proto function %d\n\n\n", MakePadding(level + 1), k)
+		fmt.Printf("\n%s-- proto function %d\n", MakePadding(level + 1), k)
 		Decompile(v)
+	}
+}
+
+func pushForwardFuncArgs(code []Statement, jTargets map[int]int) {
+	for k, v := range code {
+		if jTargets[k] != 0 {
+			continue
+		}
+
+		var call *CallExpression
+		switch vv := v.(type) {
+		case *CallStatement:
+			call = vv.Call
+		case *AssignStatement:
+			if c, ok := vv.Right[0].(*CallExpression); ok {
+				call = c
+			}
+		}
+
+		if call == nil {
+			continue
+		}
+
+		base := int(call.Func.(RegRef))
+
+		args := []int{base}
+		idxs := []int{}
+		for k, v := range call.Args {
+			if r, ok := v.(RegRef); ok && int(r) > base {
+				args = append(args, int(r))
+				idxs = append(idxs, k)
+			}
+		}
+
+		// Walk back and try to find our args
+		for i := k - 1; i >= 0 && len(args) > 0; i-- {
+			if code[i] == nil {
+				continue
+			}
+
+			if ass, ok := code[i].(*AssignStatement); ok {
+				if len(ass.Left) != 1 || len(ass.Right) != 1 {
+					break
+				}
+
+				if lr, ok := ass.Left[0].(RegRef); !ok || int(lr) != args[len(args)-1] {
+					break
+				}
+
+				args = args[:len(args)-1]
+				if len(args) == 0 {
+					call.Func = ass.Right[0]
+				} else {
+					call.Args[idxs[len(idxs)-1]] = ass.Right[0]
+					idxs = idxs[:len(idxs)-1]
+				}
+				code[i] = nil
+			} else {
+				// Not an assignment, stop now, we're doing something wrong
+				break
+			}
+
+			if jTargets[k] != 0 {
+				// This argument was a jump target, we cannot continue further
+				break
+			}
+		}
 	}
 }
