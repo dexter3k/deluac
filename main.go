@@ -30,6 +30,9 @@ func main() {
 	if preproc == "mta" {
 		data = mta.Process(data)
 	}
+
+	f := decodeBinary(data)
+	f.debugPrint(0)
 }
 
 func loadBinary(path string) []byte {
