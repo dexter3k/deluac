@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/dexter3k/deluac/decoder"
 	"github.com/dexter3k/deluac/preproc/mta"
 )
 
@@ -31,8 +32,8 @@ func main() {
 		data = mta.Process(data)
 	}
 
-	f := decodeBinary(data)
-	f.debugPrint(0)
+	f := decoder.Decode(data)
+	f.DebugPrint(0)
 }
 
 func loadBinary(path string) []byte {

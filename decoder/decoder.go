@@ -1,4 +1,4 @@
-package main
+package decoder
 
 import (
 	"bytes"
@@ -60,10 +60,10 @@ type Function struct {
 	Const  []interface{}
 	Protos []*Function
 
-	parent *Function
+	Parent *Function
 }
 
-func (f *Function) debugPrint(level int) {
+func (f *Function) DebugPrint(level int) {
 	pad := strings.Repeat(" ", level * 4)
 
 	fmt.Printf("%s-- %#v %d ups, %d params, %d var, %d stack, %d ops, %d const, %d protos\n", pad, f.Name, f.Ups, f.Params, f.IsVar, f.Stack, len(f.Ops), len(f.Const), len(f.Protos))
@@ -74,11 +74,11 @@ func (f *Function) debugPrint(level int) {
 		fmt.Printf("%s%04X: %08X\n", pad, k, v)
 	}
 	for _, v := range f.Protos {
-		v.debugPrint(level + 1)
+		v.DebugPrint(level + 1)
 	}
 }
 
-func decodeBinary(data []byte) *Function {
+func Decode(data []byte) *Function {
 	var enc binary.ByteOrder = binary.BigEndian
 
 	if len(data) < 21 + 4 + 8 + 4 + 6 * 4 {
@@ -170,7 +170,7 @@ func decodeBinary(data []byte) *Function {
 		f.Protos = make([]*Function, integer())
 		for k := range f.Protos {
 			f.Protos[k] = decodeFunction()
-			f.Protos[k].parent = f
+			f.Protos[k].Parent = f
 		}
 
 		// Skip lines
@@ -195,3 +195,4 @@ func decodeBinary(data []byte) *Function {
 
 	return decodeFunction()
 }
+
