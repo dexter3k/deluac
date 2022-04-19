@@ -8,48 +8,6 @@ import (
 	"strings"
 )
 
-type OP uint8
-const (
-	MOVE OP = iota
-	LOADK
-	LOADBOOL
-	LOADNIL
-	GETUPVAL
-	GETGLOBAL
-	GETTABLE
-	SETGLOBAL
-	SETUPVALUE
-	SETTABLE
-	NEWTABLE
-	SELF
-	ADD
-	SUB
-	MUL
-	DIV
-	MOD
-	POW
-	UNM
-	NOT
-	LEN
-	CONCAT
-	JMP
-	EQ
-	LT
-	LE
-	TEST
-	TESTSET
-	CALL
-	TAILCALL
-	RETURN
-	FORLOOP
-	FORPREP
-	TFORLOOP
-	SETLIST
-	CLOSE
-	CLOSURE
-	VARARG
-)
-
 type Function struct {
 	Name   string
 	Ups    int
@@ -63,6 +21,19 @@ type Function struct {
 	Parent *Function
 }
 
+func (f *Function) Op(i int) *Opcode {
+	op := &Opcode{}
+	DecodeOp(f.Ops[i], op)
+	return op
+}
+
+func (f *Function) Level() int {
+	if f.Parent == nil {
+		return 0
+	}
+	return f.Parent.Level() + 1
+}
+
 func (f *Function) DebugPrint(level int) {
 	pad := strings.Repeat(" ", level * 4)
 
@@ -71,7 +42,9 @@ func (f *Function) DebugPrint(level int) {
 		fmt.Printf("%s%04X: %#v\n", pad, k, v)
 	}
 	for k, v := range f.Ops {
-		fmt.Printf("%s%04X: %08X\n", pad, k, v)
+		var op Opcode
+		DecodeOp(v, &op)
+		fmt.Printf("%s%04X: %08X %s\n", pad, k, v, op)
 	}
 	for _, v := range f.Protos {
 		v.DebugPrint(level + 1)

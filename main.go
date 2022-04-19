@@ -34,6 +34,7 @@ func main() {
 
 	f := decoder.Decode(data)
 	f.DebugPrint(0)
+	Decompile(f)
 }
 
 func loadBinary(path string) []byte {
