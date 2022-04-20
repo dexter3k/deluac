@@ -260,8 +260,10 @@ func Decompile(f *decoder.Function) {
 			return StringExpression(v)
 		case bool:
 			return BoolExpression(v)
+		case nil:
+			return NilExpression{}
 		default:
-			panic(v)
+			panic(fmt.Errorf("Unknown value: %T %#v", v, v))
 		}
 	}
 
@@ -547,7 +549,26 @@ func Decompile(f *decoder.Function) {
 					Right: []Expression{callExpr},
 				}
 			}
-		// case decoder.TAILCALL:
+		case decoder.TAILCALL:
+			var args []Expression
+			if op.B == 0 {
+				args = []Expression{RestRegRef(op.A + 1)}
+			} else {
+				args = make([]Expression, op.B - 1)
+				for j := 0; j < len(args); j++ {
+					args[j] = RegRef(op.A + 1 + j)
+				}
+			}
+			callExpr := &CallExpression{
+				Func: RegRef(op.A),
+				Args: args,
+			}
+			code[i] = &ReturnStatement{
+				BaseReg: op.A,
+				Count:   -1,
+				Unknown: true,
+				Args:    []Expression{callExpr},
+			}
 		case decoder.RETURN:
 			ret := &ReturnStatement{
 				BaseReg: op.A,
@@ -615,7 +636,7 @@ func Decompile(f *decoder.Function) {
 				case decoder.GETUPVAL:
 					closure.Ups[j] = UpvalRef(up.B)
 				default:
-					panic(up)
+					panic(fmt.Errorf("Unknown value: %T %#v", up, up))
 				}
 			}
 		case decoder.VARARG:
@@ -657,7 +678,15 @@ func Decompile(f *decoder.Function) {
 
 	for k, v := range f.Protos {
 		fmt.Printf("\n%s-- proto function %d\n", MakePadding(level + 1), k)
-		Decompile(v)
+		func() {
+			defer func() {
+				if err := recover(); err != nil {
+					fmt.Printf("Failed to decompile: %v\n", err)
+				}
+			}()
+
+			Decompile(v)
+		}()
 	}
 }
 
